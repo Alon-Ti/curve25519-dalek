@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use core::arch::x86_64::_rdtsc;
 use rand::{rngs::OsRng, thread_rng};
 
 use criterion::{
@@ -10,7 +11,7 @@ use curve25519_dalek::constants;
 use curve25519_dalek::scalar::Scalar;
 
 static BATCH_SIZES: [usize; 5] = [1, 2, 4, 8, 16];
-static MULTISCALAR_SIZES: [usize; 13] = [1, 2, 4, 8, 16, 32, 64, 128, 256, 384, 512, 768, 1024];
+static MULTISCALAR_SIZES: [usize; 2] = [1 << 19, 1 << 20];
 
 mod edwards_benches {
     use super::*;
@@ -57,7 +58,7 @@ mod edwards_benches {
     }
 
     pub(crate) fn edwards_benches() {
-        let mut c = Criterion::default();
+        let mut c = Criterion::default().sample_size(10);
         let mut g = c.benchmark_group("edwards benches");
 
         compress(&mut g);
@@ -127,7 +128,14 @@ mod multiscalar_benches {
                     // benchmark into the highest cache levels).
                     b.iter_batched(
                         || construct_scalars(size),
-                        |scalars| EdwardsPoint::vartime_multiscalar_mul(&scalars, &points),
+                        |scalars| unsafe {
+                            let start = _rdtsc();
+                            for _ in 0..16 {
+                                EdwardsPoint::vartime_multiscalar_mul(&scalars, &points);
+                            }
+                            let end = _rdtsc();
+                            println!("Cycles: {}", end - start);
+                        },
                         BatchSize::SmallInput,
                     );
                 },
@@ -210,18 +218,18 @@ mod multiscalar_benches {
     }
 
     pub(crate) fn multiscalar_benches() {
-        let mut c = Criterion::default();
+        let mut c = Criterion::default().sample_size(10);
         let mut g = c.benchmark_group("multiscalar benches");
 
-        consttime_multiscalar_mul(&mut g);
+        // consttime_multiscalar_mul(&mut g);
         vartime_multiscalar_mul(&mut g);
-        vartime_precomputed_pure_static(&mut g);
+        // vartime_precomputed_pure_static(&mut g);
 
-        let dynamic_fracs = [0.0, 0.2, 0.5];
+        // let dynamic_fracs = [0.0, 0.2, 0.5];
 
-        for frac in dynamic_fracs.iter() {
-            vartime_precomputed_helper(&mut g, *frac);
-        }
+        // for frac in dynamic_fracs.iter() {
+        //     vartime_precomputed_helper(&mut g, *frac);
+        // }
     }
 }
 
@@ -260,7 +268,7 @@ mod ristretto_benches {
     }
 
     pub(crate) fn ristretto_benches() {
-        let mut c = Criterion::default();
+        let mut c = Criterion::default().sample_size(10);
         let mut g = c.benchmark_group("ristretto benches");
 
         compress(&mut g);
@@ -289,7 +297,7 @@ mod montgomery_benches {
     }
 
     pub(crate) fn montgomery_benches() {
-        let mut c = Criterion::default();
+        let mut c = Criterion::default().sample_size(10);
         let mut g = c.benchmark_group("montgomery benches");
 
         montgomery_ladder(&mut g);
@@ -349,7 +357,7 @@ mod scalar_benches {
     }
 
     pub(crate) fn scalar_benches() {
-        let mut c = Criterion::default();
+        let mut c = Criterion::default().sample_size(10);
         let mut g = c.benchmark_group("scalar benches");
 
         scalar_arith(&mut g);
@@ -357,10 +365,4 @@ mod scalar_benches {
     }
 }
 
-criterion_main!(
-    scalar_benches::scalar_benches,
-    montgomery_benches::montgomery_benches,
-    ristretto_benches::ristretto_benches,
-    edwards_benches::edwards_benches,
-    multiscalar_benches::multiscalar_benches,
-);
+criterion_main!(multiscalar_benches::multiscalar_benches,);
